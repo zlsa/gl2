@@ -9,13 +9,15 @@ $(document).ready(function() {
   C.resize();
 
   parent = new GL2.Sprite({
-    size:     [20, 10],
+    size:     [256, 256],
+    url:      'images/baboon.png'
   });
 
   child = new GL2.Sprite({
     parent:   parent,
     position: [0, 20],
     size:     [10, 6],
+    color:    [0, 0, 0.5]
   });
 
   frame();
@@ -23,7 +25,6 @@ $(document).ready(function() {
 
 function frame() {
   parent.angle += Math.PI * 0.003;
-  child.angle -= Math.PI * 0.006;
   parent.scale  = Math.sin(GL2.time() * 8) + 2;
   parent.dirty();
   C.draw();

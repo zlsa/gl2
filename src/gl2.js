@@ -11,11 +11,37 @@ GL2.log  = function(message) {
   console.log('GL2: ' + message);
 };
 
+GL2.warn = function(message) {
+  console.log('GL2: ' + message);
+};
+
 GL2.time = function() {
   return new Date().getTime() * 0.001;
 };
 
 GL2.start_time = GL2.time();
+
+GL2.Color = Class.extend({
+  init: function(r, g, b) {
+    this.r = r;
+    this.g = g;
+    this.b = b;
+  },
+  set: function() {
+    if(arguments.length === 1) {
+      this.r = arguments[0][0];
+      this.g = arguments[0][1];
+      this.b = arguments[0][2];
+    } else if(arguments.length === 3) {
+      this.r = arguments[0];
+      this.g = arguments[1];
+      this.b = arguments[2];
+    } else {
+      GL2.warn('expected r, g, b or [r, g, b] with new GL2.Color().set()');
+      return;
+    }
+  }
+});
 
 // SPRITE SHADERS
 
@@ -33,7 +59,10 @@ GL2.shader.sprite_vertex = [
   'uniform float u_Scale;',
   'uniform float u_Angle;',
   '',
+  'varying mediump vec2 v_VertexPosition;',
+  '',
   'void main(void) {',
+  '  v_VertexPosition = a_VertexPosition;',
   '  vec2 position = vec2(u_Scale * a_VertexPosition);',
   '  position.x   *= u_Size.x;',
   '  position.y   *= u_Size.y;',
@@ -50,8 +79,18 @@ GL2.shader.sprite_fragment = [
   'precision mediump float;',
   'uniform float u_Time;',
   '',
+  'uniform bool u_UseColor;',
+  'uniform vec3 u_Color;',
+  'uniform sampler2D u_Texture;',
+  '',
+  'varying mediump vec2 v_VertexPosition;',
+  '',
   'void main(void) {',
-  '  gl_FragColor = vec4(1.0, 1.0, 1.0, 1.0);',
+  '  if(u_UseColor) {',
+  '    gl_FragColor = vec4(u_Color, 1.0);',
+  '  } else {',
+  '    gl_FragColor = texture2D(u_Texture, v_VertexPosition + 0.5);',
+  '  }',
   '}'
 ].join('\n');
 
@@ -103,7 +142,7 @@ GL2.Context = Class.extend({
     this.createShaderProgram();
     this.createObject();
 
-    this.setClearColor([0, 0, 0]);
+    this.setClearColor(new GL2.Color(0, 0, 0));
     
     if(last_context) {
       last_context.use();
@@ -121,7 +160,11 @@ GL2.Context = Class.extend({
     this.canvas  = document.createElement('canvas');
     this.canvas.setAttribute('class', 'gl2');
 
-    this.context = this.canvas.getContext('webgl') || canvas.getContext('experimental-webgl');
+    var options = {
+      antialias: true
+    };
+
+    this.context = this.canvas.getContext('webgl', options) || canvas.getContext('experimental-webgl', options);
 
     if(!this.context) {
       GL2.log('could not create context');
@@ -182,8 +225,8 @@ GL2.Context = Class.extend({
   },
 
   // WebGL stuff now
-  setClearColor: function(rgb) {
-    this.context.clearColor(rgb[0], rgb[1], rgb[2], 1.0);
+  setClearColor: function(color) {
+    this.context.clearColor(color.r, color.g, color.b, 1.0);
   },
   
   // clear the screen
@@ -230,6 +273,16 @@ GL2.Context = Class.extend({
       if(sprite._angle !== current_angle) {
         gl.uniform1f(this.program.uniformPosition('u_Angle'), sprite._angle);
         current_angle = sprite._angle;
+      }
+
+      if(sprite.texture && sprite.texture.loaded) {
+        gl.uniform1i(this.program.uniformPosition('u_UseColor'), false);
+        gl.activeTexture(gl.TEXTURE0);
+        gl.bindTexture(gl.TEXTURE_2D, sprite.texture.texture);
+        gl.uniform1i(this.program.uniformPosition('u_Texture'), 0);
+      } else {
+        gl.uniform1i(this.program.uniformPosition('u_UseColor'), true);
+        gl.uniform3fv(this.program.uniformPosition('u_Color'), [sprite.color.r, sprite.color.g, sprite.color.b]);
       }
 
       gl.drawArrays(gl.TRIANGLES, 0, 6);
@@ -376,6 +429,62 @@ GL2.Object = Class.extend({
 });
 
 ////////////////////////////////////////
+// TEXTURE
+////////////////////////////////////////
+
+GL2.Texture = Class.extend({
+  init: function(url) {
+    this.context = GL2.getCurrentContext();
+
+    this.url     = url;
+
+    if(!url) {
+      GL2.warn('expected a URL with new GL2.Texture(); got none');
+      return;
+    }
+
+    this.texture = null;
+
+    this.loaded = true;
+
+    this.load();
+
+  },
+  load: function() {
+    var that = this;
+
+    this.image = new Image();
+
+    this.image.onload = function() {
+      that.done.call(that);
+    };
+
+    this.image.src = this.url;
+  },
+  done: function() {
+    var gl       = this.context.context;
+    this.texture = gl.createTexture();
+
+    gl.bindTexture(gl.TEXTURE_2D, this.texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.image);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+    gl.generateMipmap(gl.TEXTURE_2D);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+
+    this.loaded = true;
+  }
+});
+
+GL2.textures = {};
+GL2.texture  = function(url) {
+  if(!(url in GL2.textures)) {
+    GL2.textures[url] = new GL2.Texture(url);
+  }
+  return GL2.textures[url];
+};
+
+////////////////////////////////////////
 // SPRITES
 ////////////////////////////////////////
 
@@ -390,6 +499,7 @@ GL2.Sprite = Class.extend({
     this._angle    = 0;
     this._scale    = 1;
 
+    this.color    = new GL2.Color(0, 0, 0);
     this.texture  = null;
 
     this.parent   = null;
@@ -400,6 +510,7 @@ GL2.Sprite = Class.extend({
     if(options) {
       this.set(options);
     }
+
   },
   set: function(data) {
     if('position' in data)
@@ -417,6 +528,15 @@ GL2.Sprite = Class.extend({
     if('parent' in data)
       this.setParent(data.parent);
 
+    if('color' in data)
+      this.color.set(data.color);
+
+    if('url' in data)
+      this.texture = GL2.texture(data.url);
+
+    if('texture' in data)
+      this.texture = data.texture;
+
     this.updated();
   },
   setChild: function(child) {
@@ -428,6 +548,7 @@ GL2.Sprite = Class.extend({
     parent.setChild(this);
   },
   dirty: function() {
+    this.updated();
     for(var i=0;i<this.children.length;i++) {
       this.children[i].dirty();
     }
@@ -437,7 +558,6 @@ GL2.Sprite = Class.extend({
   },
   updated: function() {
     if(this.parent) {
-      this.parent.updated();
       this._angle = this.parent._angle;
 
       this._position = [this.parent._position[0], this.parent._position[1]];
@@ -458,76 +578,3 @@ GL2.Sprite = Class.extend({
   },
 });
 
-function gl_init_buffer(vertices) {
-  var gl = prop.gl.context;
-
-  var buffer = gl.createBuffer();
-  gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
-
-  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array(_.flatten(vertices)), gl.STATIC_DRAW);
-
-  return buffer;
-}
-
-
-function gl_init_shaders() {
-  var gl = prop.gl.context;
-
-  var fragmentShader = gl_compile_shader(gl, "fragment-shader");
-  var vertexShader   = gl_compile_shader(gl, "vertex-shader");
-  
-  var program = gl.createProgram();
-  gl.attachShader(program, vertexShader);
-  gl.attachShader(program, fragmentShader);
-  gl.linkProgram(program);
-  
-  if(!gl.getProgramParameter(program, gl.LINK_STATUS)) {
-    alert("Unable to initialize the shader program.");
-    return false;
-  }
-  
-  gl.useProgram(program);
-  
-  prop.gl.vertex_position_attribute = gl.getAttribLocation(program, "a_VertexPosition");
-  gl.enableVertexAttribArray(prop.gl.vertex_position_attribute);
-
-  return true;
-}
-
-
-function gl_init() {
-  gl_init_context();
-
-  if(!prop.gl.enabled) {
-    return;
-  }
-
-  var gl = prop.gl.context;
-
-  gl.clearColor(0.9, 0.95, 1.0, 1.0);
-
-  //    gl.enable(gl.DEPTH_TEST);
-  //    gl.depthFunc(gl.LEQUAL);
-
-  gl.clear(gl.COLOR_BUFFER_BIT|gl.DEPTH_BUFFER_BIT);
-
-
-  if(gl_init_shaders()) {
-    prop.gl.buffer = gl_init_buffer([
-      [-1,  1, 0],
-      [ 1,  1, 0],
-      [-1, -1, 0],
-    ]);
-  }
-  
-}
-
-function gl_update() {
-  var gl = prop.gl.context;
-
-  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
-  
-  gl.bindBuffer(gl.ARRAY_BUFFER, prop.gl.buffer);
-  gl.vertexAttribPointer(prop.gl.vertex_position_attribute, 3, gl.FLOAT, false, 0, 0);
-  gl.drawArrays(gl.TRIANGLES, 0, 3);
-}
