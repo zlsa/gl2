@@ -10,14 +10,22 @@ $(document).ready(function() {
 
   parent = new GL2.Sprite({
     size:     [256, 256],
-    url:      'images/baboon.png'
+    url:      'images/baboon.png',
+    z:        100
+  });
+
+  obj = new GL2.Sprite({
+    size:     [256, 256],
+    url:      'images/baboon.png',
+    z:        120
   });
 
   child = new GL2.Sprite({
     parent:   parent,
-    position: [0, 20],
-    size:     [10, 6],
-    color:    [0, 0, 0.5]
+    position: [0, 120],
+    size:     [150, 150],
+    color:    [1, 0, 1],
+    z:        50
   });
 
   frame();
@@ -25,8 +33,8 @@ $(document).ready(function() {
 
 function frame() {
   parent.angle += Math.PI * 0.003;
-  parent.scale  = Math.sin(GL2.time() * 8) + 2;
-  parent.dirty();
+  parent.scale  = 2;
+//  parent.alpha  = Math.sin(GL2.time() * 4) * 0.5 + 0.5;
   C.draw();
   requestAnimationFrame(frame);
 }

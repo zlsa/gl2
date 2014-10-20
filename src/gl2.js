@@ -82,15 +82,19 @@ GL2.shader.sprite_fragment = [
   'uniform bool u_UseColor;',
   'uniform vec3 u_Color;',
   'uniform sampler2D u_Texture;',
+  'uniform float u_Alpha;',
   '',
   'varying mediump vec2 v_VertexPosition;',
   '',
   'void main(void) {',
+  '  vec4 color;',
   '  if(u_UseColor) {',
-  '    gl_FragColor = vec4(u_Color, 1.0);',
+  '    color = vec4(u_Color, 1.0);',
   '  } else {',
-  '    gl_FragColor = texture2D(u_Texture, v_VertexPosition + 0.5);',
+  '    color = texture2D(u_Texture, vec2(v_VertexPosition.x + 0.5, 1.0 - (v_VertexPosition.y + 0.5)));',
   '  }',
+  '  color.a *= u_Alpha;',
+  '  gl_FragColor = color;',
   '}'
 ].join('\n');
 
@@ -172,12 +176,25 @@ GL2.Context = Class.extend({
       GL2.log('created context');
       this.created = true;
     }
-    
-//    this.context.enable(this.context.DEPTH_TEST);
 
+    var gl = this.context;
+
+    gl.blendFuncSeparate(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA, gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+    gl.enable(gl.BLEND);
+    gl.disable(gl.DEPTH_TEST);
+    
   },
   addSprite: function(sprite) {
     this.sprites.push(sprite);
+    this.updateSprites();
+    this.sortSprites();
+  },
+  sortSprites: function() {
+    this.sprites.sort(function(a, b) {
+      if(a._z == b._z) return 0;
+      if(a._z <  b._z) return -1;
+      return 1;
+    });
   },
   
   createShaderProgram: function() {
@@ -231,12 +248,22 @@ GL2.Context = Class.extend({
   
   // clear the screen
   clear: function() {
-    this.context.clear(this.context.COLOR_BUFFER_BIT | this.context.DEPTH_BUFFER_BIT);
+    this.context.clear(this.context.COLOR_BUFFER_BIT);
+  },
+
+  updateSprites: function() {
+    for(var i=0;i<this.sprites.length;i++) {
+      if(this.sprites[i].parent == null)
+        this.sprites[i].update();
+    }
   },
 
   // draw all the things
   draw: function() {
     this.clear();
+
+    this.updateSprites();
+    this.sortSprites();
 
     var gl = this.context;
     var vertex_position = this.program.attributePosition('a_VertexPosition');
@@ -265,15 +292,8 @@ GL2.Context = Class.extend({
       gl.uniform2fv(this.program.uniformPosition('u_Size'), sprite.size);
       gl.uniform2fv(this.program.uniformPosition('u_Position'), sprite._position);
 
-      if(sprite._scale !== current_scale) {
-        gl.uniform1f(this.program.uniformPosition('u_Scale'), sprite._scale);
-        current_scale = sprite._scale;
-      }
-
-      if(sprite._angle !== current_angle) {
-        gl.uniform1f(this.program.uniformPosition('u_Angle'), sprite._angle);
-        current_angle = sprite._angle;
-      }
+      gl.uniform1f(this.program.uniformPosition('u_Scale'), sprite._scale);
+      gl.uniform1f(this.program.uniformPosition('u_Angle'), sprite._angle);
 
       if(sprite.texture && sprite.texture.loaded) {
         gl.uniform1i(this.program.uniformPosition('u_UseColor'), false);
@@ -284,6 +304,7 @@ GL2.Context = Class.extend({
         gl.uniform1i(this.program.uniformPosition('u_UseColor'), true);
         gl.uniform3fv(this.program.uniformPosition('u_Color'), [sprite.color.r, sprite.color.g, sprite.color.b]);
       }
+      gl.uniform1f(this.program.uniformPosition('u_Alpha'), sprite._alpha);
 
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
@@ -495,12 +516,17 @@ GL2.Sprite = Class.extend({
     this.size     = [2, 2];
     this.scale    = 1;
 
+    this.z         = 0;
+
     this._position = [0, 0];
     this._angle    = 0;
     this._scale    = 1;
+    this._z        = 0;
+    this._alpha    = 1;
 
     this.color    = new GL2.Color(0, 0, 0);
     this.texture  = null;
+    this.alpha    = 1;
 
     this.parent   = null;
     this.children = [];
@@ -537,26 +563,20 @@ GL2.Sprite = Class.extend({
     if('texture' in data)
       this.texture = data.texture;
 
-    this.updated();
+    if('z' in data)
+      this.z = data.z;
+
+    this.update();
   },
   setChild: function(child) {
     this.children.push(child);
   },
   setParent: function(parent) {
     this.parent = parent;
-    this.updated();
+    this.update();
     parent.setChild(this);
   },
-  dirty: function() {
-    this.updated();
-    for(var i=0;i<this.children.length;i++) {
-      this.children[i].dirty();
-    }
-    if(this.children.length == 0) {
-      this.updated();
-    }
-  },
-  updated: function() {
+  update: function() {
     if(this.parent) {
       this._angle = this.parent._angle;
 
@@ -570,10 +590,19 @@ GL2.Sprite = Class.extend({
       this._angle += this.angle;
 
       this._scale *= this.scale;
+
+      this._z      = this.parent._z + this.z;
+
+      this._alpha  = this.parent._alpha * this.alpha;
     } else {
       this._angle    = this.angle;
       this._position = this.position;
       this._scale    = this.scale;
+      this._z        = this.z;
+      this._alpha    = this.alpha;
+    }
+    for(var i=0;i<this.children.length;i++) {
+      this.children[i].update();
     }
   },
 });
