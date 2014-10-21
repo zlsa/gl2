@@ -195,12 +195,21 @@ GL2.Context = Class.extend({
     this.last_draw = GL2.time();
     this.delta     = 0.00001;
 
+    this.fps       = 0;
+    this.frames    = 0;
+    this.fps_time  = GL2.time();
+
     this.use();
     this.create();
     this.createShaderProgram();
     this.createObject();
 
     this.setClearColor(new GL2.Color(0, 0, 0));
+
+    this.texture_slots = [];
+    this.current_texture = null;
+
+    this.uniform = {};
     
     if(last_context) {
       last_context.use();
@@ -337,6 +346,61 @@ GL2.Context = Class.extend({
     return this.layer;
   },
 
+  setUniform: function(uniform, value, integer) {
+    var gl = this.context;
+    var u = this.uniform[uniform];
+    if(typeof value === typeof 0.0 && !integer) {
+      if(u && u === value) return;
+      gl.uniform1f(this.program.uniformPosition(uniform), value);
+    } else if(typeof value === typeof false || integer) {
+      if(u && u === value) return;
+      gl.uniform1i(this.program.uniformPosition(uniform), value);
+    } else {
+      if(value.length === 2) {
+        if(u && u[0] == value[0] && u[1] == value[1]) return;
+        gl.uniform2fv(this.program.uniformPosition(uniform), value);
+      } else if(value.length === 3) {
+        if(u && u[0] == value[0] && u[1] == value[1] && u[2] == value[2]) return;
+        gl.uniform3fv(this.program.uniformPosition(uniform), value);
+      }
+    }
+    this.uniform[uniform] = value;
+  },
+
+  setUniformi: function(uniform, value) {
+    this.context.uniform1i(this.program.uniformPosition(uniform), value);
+  },
+
+  setTexture: function(texture) {
+    var gl = this.context;
+    if(this.current_texture && texture.url == this.current_texture.url) return;
+    for(var i=0;i<this.texture_slots.length;i++) {
+      var t = this.texture_slots[i];
+      if(texture.url == t.url) {
+        gl.activeTexture(t.gl_slot);
+        gl.bindTexture(gl.TEXTURE_2D, t.texture.texture);
+        this.setUniformi('u_Texture', t.slot);
+        this.current_texture = texture;
+        return t.slot;
+      }
+    }
+    var slot = this.texture_slots.length;
+    if(slot > 32) {
+      slot = 0;
+    }
+    this.texture_slots[slot] = {
+      url:     texture.url,
+      texture: texture,
+      slot:    slot,
+      gl_slot: eval('gl.TEXTURE' + slot)
+    };
+    gl.activeTexture(this.texture_slots[slot].gl_slot);
+    gl.bindTexture(gl.TEXTURE_2D, texture.texture);
+    this.setUniformi('u_Texture', slot);
+    this.current_texture = texture;
+    return slot;
+  },
+
   // draw all the things
   draw: function() {
     this.delta = GL2.time() - this.last_draw;
@@ -364,33 +428,12 @@ GL2.Context = Class.extend({
 
     this.last_draw = GL2.time();
     
-    this.fps = this.delta / 1 * 1000;
-
-    return;
-
-    for(var i=0;i<this.sprites.length;i++) {
-      var sprite = this.sprites[i];
-
-      if(sprite._alpha < 0.0001 || sprite._hidden || sprite._empty) continue;
-
-      gl.uniform2fv(this.program.uniformPosition('u_Size'), sprite.size);
-      gl.uniform2fv(this.program.uniformPosition('u_Position'), sprite._position);
-
-      gl.uniform1f(this.program.uniformPosition('u_Scale'), sprite._scale);
-      gl.uniform1f(this.program.uniformPosition('u_Angle'), sprite._angle);
-
-      if(sprite.texture && sprite.texture.loaded && !sprite._empty) {
-        gl.uniform1i(this.program.uniformPosition('u_UseColor'), false);
-        gl.activeTexture(gl.TEXTURE0);
-        gl.bindTexture(gl.TEXTURE_2D, sprite.texture.texture);
-        gl.uniform1i(this.program.uniformPosition('u_Texture'), 0);
-      } else {
-        gl.uniform1i(this.program.uniformPosition('u_UseColor'), true);
-        gl.uniform3fv(this.program.uniformPosition('u_Color'), [sprite.color.r, sprite.color.g, sprite.color.b]);
-      }
-      gl.uniform1f(this.program.uniformPosition('u_Alpha'), sprite._alpha);
-
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
+    this.frames += 1;
+    var time = 1;
+    if(GL2.time() > this.fps_time + time) {
+      this.fps = this.frames / time;
+      this.frames = 0;
+      this.fps_time = GL2.time();
     }
 
   }
@@ -749,23 +792,30 @@ GL2.Sprite = GL2.Group.extend({
 
     if(this._alpha < 0.0001 || this._hidden) return;
 
-    gl.uniform2fv(program.uniformPosition('u_Size'), this.size);
-    gl.uniform2fv(program.uniformPosition('u_Position'), this._position);
+    this.context.setUniform('u_Size', this.size);
+//    gl.uniform2fv(program.uniformPosition('u_Size'), this.size);
+    this.context.setUniform('u_Position', this._position);
+//    gl.uniform2fv(program.uniformPosition('u_Position'), this._position);
 
-    gl.uniform1f(program.uniformPosition('u_Scale'), this._scale);
-    gl.uniform1f(program.uniformPosition('u_Angle'), this._angle);
+    this.context.setUniform('u_Scale', this._scale);
+    this.context.setUniform('u_Angle', this._angle);
+//    gl.uniform1f(program.uniformPosition('u_Scale'), this._scale);
+//    gl.uniform1f(program.uniformPosition('u_Angle'), this._angle);
 
     if(this.texture && this.texture.loaded) {
-      gl.uniform1i(program.uniformPosition('u_UseColor'), false);
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, this.texture.texture);
-      gl.uniform1i(program.uniformPosition('u_Texture'), 0);
+      this.context.setUniform('u_UseColor', false);
+      this.context.setTexture(this.texture);
+//      gl.activeTexture(gl.TEXTURE0);
+//      gl.bindTexture(gl.TEXTURE_2D, this.texture.texture);
+//      gl.uniform1i(program.uniformPosition('u_Texture'), 0);
     } else {
-      gl.uniform1i(program.uniformPosition('u_UseColor'), true);
+      this.context.setUniform('u_UseColor', true);
+      //      gl.uniform1i(program.uniformPosition('u_UseColor'), true);
       gl.uniform3fv(program.uniformPosition('u_Color'), [this.color.r, this.color.g, this.color.b]);
     }
 
-    gl.uniform1f(program.uniformPosition('u_Alpha'), this._alpha);
+    this.context.setUniform('u_Alpha', this._alpha);
+//    gl.uniform1f(program.uniformPosition('u_Alpha'), this._alpha);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }

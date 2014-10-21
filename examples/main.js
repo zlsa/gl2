@@ -6,6 +6,18 @@ var over;
 $(document).ready(function() {
   C = new GL2.Context().use();
   $('body').append(C.getElement());
+
+  var el = $('<div id="framerate"></div>');
+  $('body').append(el);
+  el.css({
+    position:   'absolute',
+    top:        0,
+    left:       0,
+    padding:    10,
+    fontFamily: 'monospace',
+    color:      'white'
+  });
+
   C.resize();
 
   new GL2.Layer().use();
@@ -15,9 +27,9 @@ $(document).ready(function() {
     z:        100
   });
 
-  var number   = 7;
+  var number   = 8;
   var distance = 20;
-  for(var j=0;j<5;j++) {
+  for(var j=0;j<10;j++) {
     for(var i=0;i<number;i++) {
       var angle = (i / number) * Math.PI * 2;
       new GL2.Sprite({
@@ -31,8 +43,8 @@ $(document).ready(function() {
         angle:    GL2.util.random(0, Math.PI * 2)
       });
     }
-    distance += 80;
-    number   *= 1.5;
+    distance += 70;
+    number   *= 1.3;
   }
 
   over = new GL2.Sprite({
@@ -57,7 +69,8 @@ function frame() {
       parent.children[i].angle += C.delta * 0.4 * speed;
   }
   over.angle = Math.sin(GL2.time() * 2) * Math.PI;
-  over.alpha = GL2.util.clerp(-1, Math.sin(GL2.time()), 1, 0.1, 2.0);
+  over.alpha = GL2.util.clerp(-1, Math.sin(GL2.time()), 1, 0.5, 1.0);
   C.draw();
+  $('#framerate').text(Math.round(C.fps));
   requestAnimationFrame(frame);
 }
