@@ -11,8 +11,7 @@ $(document).ready(function() {
   new GL2.Layer().use();
 
   parent = new GL2.Sprite({
-    size:     [256, 256],
-    url:      'images/baboon.png',
+    size:     [0, 0],
     z:        100
   });
 
@@ -38,7 +37,7 @@ $(document).ready(function() {
 
   over = new GL2.Sprite({
     size:     [256, 256],
-    url:      'images/baboon.png',
+    url:      'images/matias-duarte.png',
     z:        120,
     scale:    2.0,
     alpha:    0.7
@@ -49,7 +48,7 @@ $(document).ready(function() {
 });
 
 function frame() {
-  var speed = 10;
+  var speed = 7;
   parent.angle += C.delta * 0.2 * speed;
   for(var i=0;i<parent.children.length;i++) {
     if(parent.children[i].alpha < 0.9)
@@ -57,7 +56,8 @@ function frame() {
     else
       parent.children[i].angle += C.delta * 0.4 * speed;
   }
-  over.alpha = GL2.util.clerp(-1, Math.sin(GL2.time()), 1, 0.1, 0.7);
+  over.angle = Math.sin(GL2.time() * 2) * Math.PI;
+  over.alpha = GL2.util.clerp(-1, Math.sin(GL2.time()), 1, 0.1, 2.0);
   C.draw();
   requestAnimationFrame(frame);
 }
