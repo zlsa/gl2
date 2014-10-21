@@ -16,11 +16,9 @@ $(document).ready(function() {
     z:        100
   });
 
-  var number   = 8;
-  var distance = 30;
-  for(var j=0;j<4;j++) {
-    distance += 60;
-    number   *= 1.5;
+  var number   = 7;
+  var distance = 20;
+  for(var j=0;j<5;j++) {
     for(var i=0;i<number;i++) {
       var angle = (i / number) * Math.PI * 2;
       new GL2.Sprite({
@@ -34,6 +32,8 @@ $(document).ready(function() {
         angle:    GL2.util.random(0, Math.PI * 2)
       });
     }
+    distance += 80;
+    number   *= 1.5;
   }
 
   over = new GL2.Sprite({
@@ -49,12 +49,13 @@ $(document).ready(function() {
 });
 
 function frame() {
-  parent.angle += C.delta * 0.2;
+  var speed = 10;
+  parent.angle += C.delta * 0.2 * speed;
   for(var i=0;i<parent.children.length;i++) {
     if(parent.children[i].alpha < 0.9)
-      parent.children[i].angle -= C.delta * 0.4;
+      parent.children[i].angle -= C.delta * 0.4 * speed;
     else
-      parent.children[i].angle += C.delta * 0.4;
+      parent.children[i].angle += C.delta * 0.4 * speed;
   }
   over.alpha = GL2.util.clerp(-1, Math.sin(GL2.time()), 1, 0.1, 0.7);
   C.draw();
