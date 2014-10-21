@@ -769,7 +769,9 @@ GL2.Sprite = GL2.Group.extend({
     this.size      = [2, 2];
     this.alpha     = 1;
 
-    this.set(options);
+    if(options) {
+      this.set(options);
+    }
   },
   set: function(data) {
     if('size' in data)
