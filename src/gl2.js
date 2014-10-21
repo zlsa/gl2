@@ -15,12 +15,19 @@ GL2.warn = function(message) {
   console.log('GL2:', message);
 };
 
+// TIME
 GL2.time = function() {
   return new Date().getTime() * 0.001;
 };
 
 GL2.start_time = GL2.time();
 
+// ERRORS
+GL2.Error = function(message) {
+  return 'GL2 error: ' + message;
+}
+
+// COLOR
 GL2.Color = Class.extend({
   init: function(r, g, b) {
     this.r = r;
@@ -158,8 +165,8 @@ GL2.Context = Class.extend({
     // sprite shader program
     this.program = null;
 
-    // children
-    this.sprites = [];
+    this.layers = [];
+    this.layer  = null;
 
     // initialization
     var last_context = GL2.context;
@@ -265,47 +272,48 @@ GL2.Context = Class.extend({
     this.context.clear(this.context.COLOR_BUFFER_BIT);
   },
 
-  // SPRITESTUFF
-  addSprite: function(sprite) {
-    this.sprites.push(sprite);
-    this.updateSprites();
+  // LAYERS
+  addLayer: function(layer) {
+    this.layers.push(layer);
+    this.updateLayers();
   },
-  removeSprite: function(sprite, inhibit_update) {
+  removeLayer: function(layer) {
     var index = null;
-    for(var i=0;i<this.sprites.length;i++) {
-      if(this.sprites[i].index === sprite.index) {
+    for(var i=0;i<this.layers.length;i++) {
+      if(this.layers[i].index === layer.index) {
         index = i;
         break;
       }
     }
     if(index == null) {
-      GL2.trace(sprite);
       return false;
     }
-    return this.removeSpriteByIndex(index, inhibit_update);
-  },
-  removeSpriteByIndex: function(index, inhibit_update) {
-    var sprite = this.sprites[index];
-    this.sprites.splice(index, 1);
-    for(var i=0;i<sprite.children.length;i++) {
-      this.removeSprite(sprite.children[i], true);
-    }
-    if(!inhibit_update) this.updateSprites();
+    this.removeLayerByIndex(index);
     return true;
   },
-  sortSprites: function() {
-    this.sprites.sort(function(a, b) {
+  removeLayerByIndex: function(index, inhibit_update) {
+    var layer = this.layers[index];
+    this.layers.splice(index, 1);
+    this.updateLayers();
+  },
+  sortLayers: function() {
+    this.layers.sort(function(a, b) {
       if(a._z == b._z) return 0;
       if(a._z <  b._z) return -1;
       return 1;
     });
   },
-  updateSprites: function() {
-    for(var i=0;i<this.sprites.length;i++) {
-      if(this.sprites[i].parent == null)
-        this.sprites[i].update();
+  updateLayers: function() {
+//    for(var i=0;i<this.layers.length;i++) {
+//      this.layers[i].update();
+//    }
+    this.sortLayers();
+  },
+  getCurrentLayer: function() {
+    if(!this.layer) {
+      throw GL2.Error('no current layer');
     }
-    this.sortSprites();
+    return this.layer;
   },
 
   // draw all the things
@@ -314,7 +322,7 @@ GL2.Context = Class.extend({
 
     this.clear();
 
-    this.updateSprites();
+    this.updateLayers();
 
     var gl = this.context;
     var vertex_position = this.program.attributePosition('a_VertexPosition');
@@ -329,13 +337,15 @@ GL2.Context = Class.extend({
     gl.uniformMatrix4fv(this.program.uniformPosition('u_pMatrix'), false, this.pMatrix);
     gl.uniform1f(this.program.uniformPosition('u_Time'), GL2.time() - GL2.start_time);
 
-    var current_position = [0, 0];
-    var current_size  = [1, 1];
-    var current_angle = 1;
-    var current_scale = 1;
+    for(var i=0;i<this.layers.length;i++) {
+      this.layers[i].draw();
+    }
 
-    gl.uniform1f(this.program.uniformPosition('u_Scale'), 1);
-    gl.uniform1f(this.program.uniformPosition('u_Angle'), 0);
+    this.last_draw = GL2.time();
+    
+    this.fps = this.delta / 1 * 1000;
+
+    return;
 
     for(var i=0;i<this.sprites.length;i++) {
       var sprite = this.sprites[i];
@@ -362,7 +372,6 @@ GL2.Context = Class.extend({
       gl.drawArrays(gl.TRIANGLES, 0, 6);
     }
 
-    this.last_draw = GL2.time();
   }
 
 });
@@ -549,12 +558,52 @@ GL2.texture  = function(url) {
 };
 
 ////////////////////////////////////////
+// LAYERS
+////////////////////////////////////////
+
+GL2.layer_index = 0;
+GL2.Layer = Class.extend({
+  init: function(options) {
+    this.context  = GL2.getCurrentContext();
+
+    this.index    = GL2.layer_index++;
+
+    this.alpha    = 1;
+
+    this.sprites  = [];
+
+    this.context.addLayer(this);
+  },
+  use: function() {
+    this.context.layer = this;
+    return this;
+  },
+  addSprite: function(sprite) {
+    this.sprites.push(sprite);
+    return this;
+  },
+  draw: function() {
+    for(var i=0;i<this.sprites.length;i++) {
+      if(!this.sprites[i].parent) {
+        this.sprites[i].update();
+      }
+    }
+    for(var i=0;i<this.sprites.length;i++) {
+      this.sprites[i].draw();
+    }
+  }
+});
+
+////////////////////////////////////////
 // SPRITES
 ////////////////////////////////////////
 
 GL2.sprite_index = 0;
-GL2.Empty = Class.extend({
+GL2.Group = Class.extend({
   init: function(options) {
+    this.context  = GL2.getCurrentContext();
+    this.layer    = this.context.getCurrentLayer();
+
     this._empty   = true;
     this.index    = GL2.sprite_index++;
     this.position = [0, 0];
@@ -579,7 +628,7 @@ GL2.Empty = Class.extend({
       this.set(options);
     }
 
-    GL2.getCurrentContext().addSprite(this);
+    this.layer.addSprite(this);
 
   },
   set: function(data) {
@@ -614,6 +663,9 @@ GL2.Empty = Class.extend({
     parent.setChild(this);
     this.update();
   },
+  draw: function() {
+
+  },
   update: function() {
     if(this.parent) {
       this._angle = this.parent._angle;
@@ -645,7 +697,7 @@ GL2.Empty = Class.extend({
   },
 });
 
-GL2.Sprite = GL2.Empty.extend({
+GL2.Sprite = GL2.Group.extend({
   init: function(options) {
     this.color    = new GL2.Color(1, 0, 1);
     this.texture  = null;
@@ -669,78 +721,31 @@ GL2.Sprite = GL2.Empty.extend({
       this.texture = data.texture;
 
     this._super(data);
-  }
-});
-
-////////////////////////////////////////
-// PARTICLES
-////////////////////////////////////////
-
-GL2.Particles = Class.extend({
-  init: function(options) {
-    this.context   = GL2.getCurrentContext();
-
-    this.particles = [];
-
-    this.life      = 1;
-
-    this.empty     = new GL2.Empty(options);
-
-    this.set(options);
   },
-  createParticles: function(data) {
-    for(var i=0;i<data.number;i++) {
-      this.particles.push({
-        position:    [0, 0],
-        velocity:    [0, 0],
-        age:         0,
-        sprite:      new GL2.Sprite({
-          parent:  this.empty,
-          size:    [4, 4],
-          scale:   10,
-          url:     data.url,
-          alpha:   1,
-        }),
-        spawn:     GL2.time() - Math.random() * this.life,
-        life:      GL2.util.random(0.9, 1.1) * this.life,
-        random:    Math.random()
-      });
+  draw: function() {
+    var gl      = this.context.context;
+    var program = this.context.program;
+
+    if(this._alpha < 0.0001 || this._hidden) return;
+
+    gl.uniform2fv(program.uniformPosition('u_Size'), this.size);
+    gl.uniform2fv(program.uniformPosition('u_Position'), this._position);
+
+    gl.uniform1f(program.uniformPosition('u_Scale'), this._scale);
+    gl.uniform1f(program.uniformPosition('u_Angle'), this._angle);
+
+    if(this.texture && this.texture.loaded) {
+      gl.uniform1i(program.uniformPosition('u_UseColor'), false);
+      gl.activeTexture(gl.TEXTURE0);
+      gl.bindTexture(gl.TEXTURE_2D, this.texture.texture);
+      gl.uniform1i(program.uniformPosition('u_Texture'), 0);
+    } else {
+      gl.uniform1i(program.uniformPosition('u_UseColor'), true);
+      gl.uniform3fv(program.uniformPosition('u_Color'), [this.color.r, this.color.g, this.color.b]);
     }
-  },
-  set: function(data) {
-    if('life' in data)
-      this.life = data.life;
 
-    if('number' in data)
-      this.number = data.number;
+    gl.uniform1f(program.uniformPosition('u_Alpha'), this._alpha);
 
-    this.createParticles(data);
-  },
-  respawn: function(i) {
-    var p = this.particles[i];
-    p.spawn       = GL2.time(),
-    p.position[0] = this.empty.position[0];
-    p.position[1] = this.empty.position[1];
-    var spread = 80;
-    p.velocity[0] = GL2.util.random(-spread, spread) + spread * 3;
-    p.velocity[1] = GL2.util.random(-spread, spread) - spread * 3;
-  },
-  update: function() {
-    for(var i=0;i<this.particles.length;i++) {
-      var p = this.particles[i];
-      p.age = GL2.time() - p.spawn;
-      var d = this.context.delta;
-      if(p.age > p.life) {
-        this.respawn(i);
-      }
-      p.position[0] += p.velocity[0] * d;
-      p.position[1] += p.velocity[1] * d;
-      p.sprite.position[0] = p.position[0];
-      p.sprite.position[1] = p.position[1];
-      p.sprite.z           = -p.age;
-      p.sprite.alpha       = GL2.util.clerp(0, p.age, 0.5 * p.life, 0, 1) * GL2.util.clerp(0, p.age, 1 * p.life, 1, 0);
-      p.sprite.scale       = GL2.util.clerp(0, p.age, p.life, 10, 50) * GL2.util.clerp(0, p.age, p.life * 0.1, 0, 1);
-      p.sprite.angle       = ((p.age * 1.2) + p.random * 10) % (Math.PI * 2);
-    }
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
 });
