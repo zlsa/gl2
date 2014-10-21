@@ -189,9 +189,6 @@ GL2.Context = Class.extend({
     this.layers = [];
     this.layer  = null;
 
-    // initialization
-    var last_context = GL2.context;
-
     this.last_draw = GL2.time();
     this.delta     = 0.00001;
 
@@ -211,10 +208,6 @@ GL2.Context = Class.extend({
 
     this.uniform = {};
     
-    if(last_context) {
-      last_context.use();
-    }
-
   },
   // set as current
   use: function() {
@@ -614,7 +607,7 @@ GL2.Texture = Class.extend({
 });
 
 GL2.textures = {};
-GL2.texture  = function(url) {
+GL2.loadTexture = function(url) {
   if(!(url in GL2.textures)) {
     GL2.textures[url] = new GL2.Texture(url);
   }
@@ -647,8 +640,9 @@ GL2.Layer = Class.extend({
     return this;
   },
   draw: function() {
+    if(this.alpha < 0.001) return;
     for(var i=0;i<this.sprites.length;i++) {
-      if(!this.sprites[i].parent) {
+      if(!this.sprites[i].parent && this.sprites[i]._dirty) {
         this.sprites[i].update();
       }
     }
@@ -668,12 +662,12 @@ GL2.Group = Class.extend({
     this.context  = GL2.getCurrentContext();
     this.layer    = this.context.getCurrentLayer();
 
-    this._empty   = true;
     this.index    = GL2.sprite_index++;
     this.position = [0, 0];
     this.angle    = 0;
-    this.size     = [0, 0];
     this.scale    = 1;
+
+    this._dirty   = false;
 
     this.z         = 0;
     
@@ -702,9 +696,6 @@ GL2.Group = Class.extend({
     if('angle' in data)
       this.angle = data.angle;
 
-    if('size' in data)
-      this.size = data.size;
-
     if('scale' in data)
       this.scale = data.scale;
 
@@ -718,6 +709,12 @@ GL2.Group = Class.extend({
       this.z = data.z;
 
     this.update();
+  },
+  dirty: function() {
+    if(this.parent) {
+      this.parent.dirty();
+    }
+    this._dirty = true;
   },
   setChild: function(child) {
     this.children.push(child);
@@ -758,6 +755,7 @@ GL2.Group = Class.extend({
     for(var i=0;i<this.children.length;i++) {
       this.children[i].update();
     }
+    this._dirty = false;
   },
 });
 
@@ -767,7 +765,6 @@ GL2.Sprite = GL2.Group.extend({
     this.texture  = null;
 
     this._super(options);
-    this._empty   = false;
 
     this.size      = [2, 2];
     this.alpha     = 1;
@@ -775,11 +772,14 @@ GL2.Sprite = GL2.Group.extend({
     this.set(options);
   },
   set: function(data) {
+    if('size' in data)
+      this.size = data.size;
+
     if('color' in data)
       this.color.set(data.color);
 
     if('url' in data)
-      this.texture = GL2.texture(data.url);
+      this.texture = GL2.loadTexture(data.url);
 
     if('texture' in data)
       this.texture = data.texture;
@@ -799,23 +799,16 @@ GL2.Sprite = GL2.Group.extend({
 
     this.context.setUniform('u_Scale', this._scale);
     this.context.setUniform('u_Angle', this._angle);
-//    gl.uniform1f(program.uniformPosition('u_Scale'), this._scale);
-//    gl.uniform1f(program.uniformPosition('u_Angle'), this._angle);
 
     if(this.texture && this.texture.loaded) {
       this.context.setUniform('u_UseColor', false);
       this.context.setTexture(this.texture);
-//      gl.activeTexture(gl.TEXTURE0);
-//      gl.bindTexture(gl.TEXTURE_2D, this.texture.texture);
-//      gl.uniform1i(program.uniformPosition('u_Texture'), 0);
     } else {
       this.context.setUniform('u_UseColor', true);
-      //      gl.uniform1i(program.uniformPosition('u_UseColor'), true);
       gl.uniform3fv(program.uniformPosition('u_Color'), [this.color.r, this.color.g, this.color.b]);
     }
 
-    this.context.setUniform('u_Alpha', this._alpha);
-//    gl.uniform1f(program.uniformPosition('u_Alpha'), this._alpha);
+    this.context.setUniform('u_Alpha', this._alpha * this.layer.alpha);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }

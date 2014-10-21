@@ -44,7 +44,7 @@ $(document).ready(function() {
       });
     }
     distance += 70;
-    number   *= 1.3;
+    number   *= 1.2;
   }
 
   over = new GL2.Sprite({
@@ -68,9 +68,13 @@ function frame() {
     else
       parent.children[i].angle += C.delta * 0.4 * speed;
   }
+  parent.dirty();
   over.angle = Math.sin(GL2.time() * 2) * Math.PI;
   over.alpha = GL2.util.clerp(-1, Math.sin(GL2.time()), 1, 0.5, 1.0);
+  over.dirty();
+
   C.draw();
+
   $('#framerate').text(Math.round(C.fps));
   requestAnimationFrame(frame);
 }
