@@ -27,29 +27,6 @@ GL2.Error = function(message) {
   return 'GL2 error: ' + message;
 }
 
-// COLOR
-GL2.Color = Class.extend({
-  init: function(r, g, b) {
-    this.r = r;
-    this.g = g;
-    this.b = b;
-  },
-  set: function() {
-    if(arguments.length === 1) {
-      this.r = arguments[0][0];
-      this.g = arguments[0][1];
-      this.b = arguments[0][2];
-    } else if(arguments.length === 3) {
-      this.r = arguments[0];
-      this.g = arguments[1];
-      this.b = arguments[2];
-    } else {
-      GL2.warn('expected r, g, b or [r, g, b] with new GL2.Color().set()');
-      return;
-    }
-  }
-});
-
 // SPRITE SHADERS
 
 GL2.shader = {};
@@ -113,13 +90,8 @@ GL2.shader.sprite_fragment = [
   '    color = vec4(u_Color, 1.0);',
   '  } else {',
   '    vec2 uv = vec2(v_VertexPosition.x, v_VertexPosition.y);',
-//  '    uv.x = posterize(uv.x, u_Size.x * 0.1);',
-//  '    uv.y = posterize(uv.y, u_Size.y * 0.1);',
   '    color = texture2D(u_Texture, vec2(uv.x + 0.5, 1.0 - (uv.y + 0.5)));',
-//  '    color.rgb = 1.0 - color.rgb;',
   '    float brightness = average3(color.r, color.g, color.b);',
-//  '    color.a = brightness;',
-//  '    color.a = 1.0 - (length(uv) * 2.0);',
   '  }',
   '  color.a *= u_Alpha;',
   '  gl_FragColor = color;',
@@ -164,6 +136,10 @@ GL2.util.clerp = function(il, i, ih, ol, oh) {
   return (((GL2.util.clamp(il, i, ih) - il) / (ih - il)) * (oh - ol)) + ol;
 };
 
+GL2.util.mod = function(a, n) {
+  return ((a%n)+n)%n;
+};
+
 ////////////////////////////////////////
 // CONTEXT
 ////////////////////////////////////////
@@ -174,14 +150,15 @@ GL2.getCurrentContext = function() {
 };
 
 GL2.Context = Class.extend({
-  init: function() {
+  init: function(options) {
     this.context = null;
     this.canvas  = null;
 
+    // viewport size
     this.size    = [0, 0];
     this.aspect  = 1;
 
-    this.created = false;
+    this.backend = options.backend || 'gl';
 
     // sprite shader program
     this.program = null;
@@ -198,10 +175,8 @@ GL2.Context = Class.extend({
 
     this.use();
     this.create();
-    this.createShaderProgram();
-    this.createObject();
 
-    this.setClearColor(new GL2.Color(0, 0, 0));
+    this.setClearColor(0, 0, 0);
 
     this.texture_slots = [];
     this.current_texture = null;
@@ -217,8 +192,16 @@ GL2.Context = Class.extend({
 
   // initialization
   create: function() {
+    if(this.backend == 'gl' || this.backend == 'auto')
+      this.createWebGL();
+    else
+      this.createCanvas();
+  },
+  createWebGL: function() {
     this.canvas  = document.createElement('canvas');
     this.canvas.setAttribute('class', 'gl2');
+
+    this.backend = 'gl';
 
     var options = {
       antialias: true
@@ -228,9 +211,10 @@ GL2.Context = Class.extend({
 
     if(!this.context) {
       GL2.log('could not create context');
+      this.createCanvas();
+      return;
     } else {
       GL2.log('created context');
-      this.created = true;
     }
 
     var gl = this.context;
@@ -239,14 +223,38 @@ GL2.Context = Class.extend({
     gl.enable(gl.BLEND);
     gl.disable(gl.DEPTH_TEST);
     
+    this.createShaderProgram();
+    this.createObject();
+
+  },
+  createCanvas: function() {
+    if(!this.canvas)
+      this.canvas = document.createElement('canvas');
+    this.canvas.setAttribute('class', 'gl2 canvas');
+
+    this.context = this.canvas.getContext('2d');
+
+    if(!this.context) {
+      GL2.log('could not create canvas context');
+      return;
+    } else {
+      GL2.log('created fallback canvas context');
+    }
+
+    this.context.imageSmoothingEnabled = true;
+
+    this.backend = 'canvas';
+
   },
   
   createShaderProgram: function() {
+    if(this.backend != 'gl') return;
     var vertex   = new GL2.VertexShader(GL2.shader.sprite_vertex);
     var fragment = new GL2.FragmentShader(GL2.shader.sprite_fragment);
     this.program = new GL2.ShaderProgram(vertex, fragment);
   },
   createObject: function() {
+    if(this.backend != 'gl') return;
     this.object = new GL2.Object([
       [-0.5,  0.5],
       [ 0.5,  0.5],
@@ -270,29 +278,41 @@ GL2.Context = Class.extend({
       GL2.trace('resizing to ' + width + ' x ' + height);
     }
 
-    this.context.viewport(0, 0, width, height);
+    this.context.canvas.width  = width;
+    this.context.canvas.height = height;
 
-    this.canvas.width  = width;
-    this.canvas.height = height;
+    this.size   = [width, height];
 
     this.aspect = width / height;
 
-    this.pMatrix = mat4.create();
-    var left   = Math.floor(-width  * 0.5);
-    var bottom = Math.floor(-height * 0.5);
-    mat4.ortho(this.pMatrix, left, left + width, bottom, bottom + height, 0, 10);
+    if(this.backend == 'gl') {
+      this.context.viewport(0, 0, width, height);
+      this.pMatrix = mat4.create();
+      var left   = Math.floor(-width  * 0.5);
+      var bottom = Math.floor(-height * 0.5);
+      mat4.ortho(this.pMatrix, left, left + width, bottom, bottom + height, 0, 10);
+    }
 
     return this;
   },
 
   // WebGL stuff now
-  setClearColor: function(color) {
-    this.context.clearColor(color.r, color.g, color.b, 1.0);
+  setClearColor: function(r, g, b) {
+    if(this.backend == 'gl') {
+      this.context.clearColor(r, g, b, 1.0);
+    } else {
+      this.clearColor = [r, g, b];
+    }
   },
   
   // clear the screen
   clear: function() {
-    this.context.clear(this.context.COLOR_BUFFER_BIT);
+    if(this.backend == 'gl') {
+      this.context.clear(this.context.COLOR_BUFFER_BIT);
+    } else {
+      this.context.fillStyle = 'rgb(' + this.clearColor.join(', ') + ')';
+      this.context.fillRect(0, 0, this.size[0], this.size[1]);
+    }
   },
 
   // LAYERS
@@ -327,10 +347,7 @@ GL2.Context = Class.extend({
     });
   },
   updateLayers: function() {
-//    for(var i=0;i<this.layers.length;i++) {
-//      this.layers[i].update();
-//    }
-    this.sortLayers();
+//    this.sortLayers();
   },
   getCurrentLayer: function() {
     if(!this.layer) {
@@ -340,6 +357,7 @@ GL2.Context = Class.extend({
   },
 
   setUniform: function(uniform, value, integer) {
+    if(this.backend != 'gl') return;
     var gl = this.context;
     var u = this.uniform[uniform];
     if(typeof value === typeof 0.0 && !integer) {
@@ -361,10 +379,12 @@ GL2.Context = Class.extend({
   },
 
   setUniformi: function(uniform, value) {
+    if(this.backend != 'gl') return;
     this.context.uniform1i(this.program.uniformPosition(uniform), value);
   },
 
   setTexture: function(texture) {
+    if(this.backend != 'gl') return;
     var gl = this.context;
     if(this.current_texture && texture.url == this.current_texture.url) return;
     for(var i=0;i<this.texture_slots.length;i++) {
@@ -402,18 +422,20 @@ GL2.Context = Class.extend({
 
     this.updateLayers();
 
-    var gl = this.context;
-    var vertex_position = this.program.attributePosition('a_VertexPosition');
+    if(this.backend == 'gl') {
+      var gl = this.context;
+      var vertex_position = this.program.attributePosition('a_VertexPosition');
 
-    gl.useProgram(this.program.program);
+      gl.useProgram(this.program.program);
 
-    gl.bindBuffer(gl.ARRAY_BUFFER, this.object.buffer);
+      gl.bindBuffer(gl.ARRAY_BUFFER, this.object.buffer);
 
-    gl.vertexAttribPointer(vertex_position, 2, gl.FLOAT, false, 0, 0);
-    gl.enableVertexAttribArray(vertex_position);
+      gl.vertexAttribPointer(vertex_position, 2, gl.FLOAT, false, 0, 0);
+      gl.enableVertexAttribArray(vertex_position);
 
-    gl.uniformMatrix4fv(this.program.uniformPosition('u_pMatrix'), false, this.pMatrix);
-    gl.uniform1f(this.program.uniformPosition('u_Time'), GL2.time() - GL2.start_time);
+      gl.uniformMatrix4fv(this.program.uniformPosition('u_pMatrix'), false, this.pMatrix);
+      gl.uniform1f(this.program.uniformPosition('u_Time'), GL2.time() - GL2.start_time);
+    }
 
     for(var i=0;i<this.layers.length;i++) {
       this.layers[i].draw();
@@ -592,16 +614,17 @@ GL2.Texture = Class.extend({
     this.image.src = this.url;
   },
   done: function() {
-    var gl       = this.context.context;
-    this.texture = gl.createTexture();
+    if(this.context.backend == 'gl') {
+      var gl       = this.context.context;
+      this.texture = gl.createTexture();
 
-    gl.bindTexture(gl.TEXTURE_2D, this.texture);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.image);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
-    gl.generateMipmap(gl.TEXTURE_2D);
-    gl.bindTexture(gl.TEXTURE_2D, null);
-
+      gl.bindTexture(gl.TEXTURE_2D, this.texture);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, this.image);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR_MIPMAP_NEAREST);
+      gl.generateMipmap(gl.TEXTURE_2D);
+      gl.bindTexture(gl.TEXTURE_2D, null);
+    }
     this.loaded = true;
   }
 });
@@ -752,6 +775,7 @@ GL2.Group = Class.extend({
       this._z        = this.z;
       this._alpha    = this.alpha;
     }
+    this._angle = GL2.util.mod(this._angle, Math.PI * 2);
     for(var i=0;i<this.children.length;i++) {
       this.children[i].update();
     }
@@ -761,7 +785,7 @@ GL2.Group = Class.extend({
 
 GL2.Sprite = GL2.Group.extend({
   init: function(options) {
-    this.color    = new GL2.Color(1, 0, 1);
+    this.color    = [1, 0, 1];
     this.texture  = null;
 
     this._super(options);
@@ -788,30 +812,62 @@ GL2.Sprite = GL2.Group.extend({
 
     this._super(data);
   },
-  draw: function() {
+  drawWebGL: function() {
     var gl      = this.context.context;
-    var program = this.context.program;
 
     if(this._alpha < 0.0001 || this._hidden) return;
 
     this.context.setUniform('u_Size', this.size);
-//    gl.uniform2fv(program.uniformPosition('u_Size'), this.size);
     this.context.setUniform('u_Position', this._position);
-//    gl.uniform2fv(program.uniformPosition('u_Position'), this._position);
 
     this.context.setUniform('u_Scale', this._scale);
     this.context.setUniform('u_Angle', this._angle);
 
-    if(this.texture && this.texture.loaded) {
+    if(this.texture) {
       this.context.setUniform('u_UseColor', false);
       this.context.setTexture(this.texture);
     } else {
       this.context.setUniform('u_UseColor', true);
-      gl.uniform3fv(program.uniformPosition('u_Color'), [this.color.r, this.color.g, this.color.b]);
+      this.context.setUniform('u_Color', this.color);
     }
 
     this.context.setUniform('u_Alpha', this._alpha * this.layer.alpha);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+  },
+  drawCanvas: function() {
+    var cc      = this.context.context;
+
+    if(this._alpha < 0.0001 || this._hidden) return;
+
+    cc.save();
+    cc.translate(this._position[0] + cc.canvas.width * 0.5, this._position[1] + cc.canvas.height * 0.5);
+    cc.rotate(this._angle);
+    cc.scale(this._scale, this._scale);
+    if(this.texture) {
+      cc.globalAlpha = this._alpha * this.layer.alpha;
+      cc.drawImage(this.texture.image, -this.size[0] * 0.5, -this.size[1] * 0.5, this.size[0], this.size[1]);
+    } else {
+      cc.fillStyle = 'rgba(' + this.color.join(', ') + ', ' + this._alpha * this.layer.alpha + ')';
+      cc.fillRect(-this.size[0] * 0.5, -this.size[1] * 0.5, this.size[0], this.size[1]);
+    }
+    cc.restore();
+  },
+  draw: function() {
+    if(this.texture && !this.texture.loaded) return;
+
+    if(true) {
+      var radius = Math.max(this.size[0], this.size[1]) * this._scale;
+      if(this._position[0] + radius < -this.context.size[0] * 0.5 ||
+         this._position[0] - radius >  this.context.size[0] * 0.5 ||
+         this._position[1] + radius < -this.context.size[1] * 0.5 ||
+         this._position[1] - radius >  this.context.size[1] * 0.5)
+        return;
+    }
+
+    if(this.context.backend == 'gl')
+      this.drawWebGL();
+    else if(this.context.backend == 'canvas')
+      this.drawCanvas();
   }
 });

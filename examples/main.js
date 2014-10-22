@@ -4,7 +4,9 @@ var parent;
 var over;
 
 $(document).ready(function() {
-  C = new GL2.Context().use();
+  C = new GL2.Context({
+//    backend: 'canvas'
+  }).use();
   $('body').append(C.getElement());
 
   var el = $('<div id="framerate"></div>');
@@ -27,6 +29,10 @@ $(document).ready(function() {
     z:        100
   });
 
+  $(window).resize(function() {
+    C.resize();
+  });
+
   var number   = 8;
   var distance = 20;
   for(var j=0;j<10;j++) {
@@ -38,8 +44,8 @@ $(document).ready(function() {
         size:     [256, 256],
         url:      'images/baboon.png',
         z:        120,
-        scale:    0.3,
-        alpha:    GL2.util.random(0.89, 0.91),
+        scale:    0.1,
+        alpha:    GL2.util.random(0.5, 1),
         angle:    GL2.util.random(0, Math.PI * 2)
       });
     }
@@ -49,10 +55,10 @@ $(document).ready(function() {
 
   over = new GL2.Sprite({
     size:     [256, 256],
-    url:      'images/matias-duarte.png',
+    url:      'images/earth.png',
     z:        120,
     scale:    2.0,
-    alpha:    0.7
+    alpha:    1
   });
 
   frame();
@@ -60,7 +66,7 @@ $(document).ready(function() {
 });
 
 function frame() {
-  var speed = 7;
+  var speed = 2;
   parent.angle += C.delta * 0.2 * speed;
   for(var i=0;i<parent.children.length;i++) {
     if(parent.children[i].alpha < 0.9)
@@ -69,8 +75,8 @@ function frame() {
       parent.children[i].angle += C.delta * 0.4 * speed;
   }
   parent.dirty();
-  over.angle = Math.sin(GL2.time() * 2) * Math.PI;
-  over.alpha = GL2.util.clerp(-1, Math.sin(GL2.time()), 1, 0.5, 1.0);
+  over.angle = GL2.time() * -0.1;
+  over.scale = GL2.util.clerp(-1, Math.sin(GL2.time()), 1, 0.5, 1.0);
   over.dirty();
 
   C.draw();
