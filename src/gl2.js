@@ -91,7 +91,6 @@ GL2.shader.sprite_fragment = [
   '  } else {',
   '    vec2 uv = vec2(v_VertexPosition.x, v_VertexPosition.y);',
   '    color = texture2D(u_Texture, vec2(uv.x + 0.5, 1.0 - (uv.y + 0.5)));',
-  '    float brightness = average3(color.r, color.g, color.b);',
   '  }',
   '  color.a *= u_Alpha;',
   '  gl_FragColor = color;',

@@ -44,7 +44,7 @@ $(document).ready(function() {
         size:     [256, 256],
         url:      'images/baboon.png',
         z:        120,
-        scale:    0.1,
+        scale:    0.5,
         alpha:    GL2.util.random(0.5, 1),
         angle:    GL2.util.random(0, Math.PI * 2)
       });
